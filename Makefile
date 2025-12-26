@@ -50,3 +50,9 @@ proto: proto-tools
 		--go_out=$(OUT_DIR) --go_opt=paths=source_relative \
 		--go-grpc_out=$(OUT_DIR) --go-grpc_opt=paths=source_relative \
 		$$(find $(PROTO_DIR) -name "*.proto")
+
+run-gateway-dev:
+	APP_ENV=dev LOG_LEVEL=debug HTTP_PORT=8080 go run ./cmd/gateway
+
+run-catalog-dev:
+	APP_ENV=dev LOG_LEVEL=debug GRPC_PORT=8081 go run ./cmd/catalog
