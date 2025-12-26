@@ -1,0 +1,194 @@
+# deploy/docker-compose.yml
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: shopping_postgres
+    hostname: postgres
+    environment:
+      POSTGRES_USER: shopping
+      POSTGRES_PASSWORD: shoppingpassword
+      POSTGRES_DB: shopping_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - shopping_postgres_data:/var/lib/postgresql/data
+    networks:
+      - shopping_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shopping -d shopping_db -h localhost -p 5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: shopping_redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - shopping_redis_data:/data
+    networks:
+      - shopping_net
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    image: bitnamilegacy/kafka:latest
+    container_name: shopping_kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"  # EXTERNAL (host -> docker)
+    environment:
+      # KRaft Settings
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+
+      # Listeners
+      # CONTROLLER: internal raft (9093)
+      # INTERNAL: docker-to-docker (9094)
+      # EXTERNAL: host-to-docker (9092)
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,INTERNAL://:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    volumes:
+      - shopping_kafka_data:/bitnami/kafka
+    networks:
+      - shopping_net
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: shopping_kafka_ui
+    hostname: kafka-ui
+    ports:
+      - "8088:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9094
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - shopping_net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  init-kafka:
+    image: bitnamilegacy/kafka:latest
+    container_name: shopping_init_kafka
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - shopping_net
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "
+      echo 'Waiting for Kafka INTERNAL listener...'
+      until kafka-topics.sh --bootstrap-server kafka:9094 --list >/dev/null 2>&1; do
+        echo 'Broker not available yet... waiting 2s'
+        sleep 2
+      done
+
+      echo 'Kafka is UP. Creating topics...'
+
+      # Order saga topics
+      kafka-topics.sh --create --if-not-exists --topic order.created         --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic payment.authorized   --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic payment.failed       --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic inventory.reserved   --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic inventory.failed     --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic shipment.created     --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic shipment.shipped     --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic shipment.delivered   --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic order.completed      --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+
+      # DLQ topics
+      kafka-topics.sh --create --if-not-exists --topic dlq.order            --bootstrap-server kafka:9094 --partitions 1 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic dlq.payment          --bootstrap-server kafka:9094 --partitions 1 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic dlq.inventory        --bootstrap-server kafka:9094 --partitions 1 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic dlq.shipment         --bootstrap-server kafka:9094 --partitions 1 --replication-factor 1
+
+      # RAG pipeline topics
+      kafka-topics.sh --create --if-not-exists --topic rag.embedding.jobs   --bootstrap-server kafka:9094 --partitions 3 --replication-factor 1
+      kafka-topics.sh --create --if-not-exists --topic dlq.rag.embedding    --bootstrap-server kafka:9094 --partitions 1 --replication-factor 1
+
+      echo 'SUCCESS: Topics created.'
+      kafka-topics.sh --bootstrap-server kafka:9094 --list
+      "
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: shopping_prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - shopping_prometheus_data:/prometheus
+    networks:
+      - shopping_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: shopping_grafana
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - shopping_grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - shopping_net
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+networks:
+  shopping_net:
+    driver: bridge
+
+volumes:
+  shopping_postgres_data:
+  shopping_redis_data:
+  shopping_kafka_data:
+  shopping_prometheus_data:
+  shopping_grafana_data:

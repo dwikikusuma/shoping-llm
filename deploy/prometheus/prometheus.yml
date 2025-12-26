@@ -1,0 +1,22 @@
+# deploy/prometheus/prometheus.yml
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+
+  # If you run gateway/catalog on your HOST (go run), Prometheus in Docker can scrape via host.docker.internal
+  # gateway default port :8080
+  - job_name: "gateway"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+
+  # catalog example port :8081 (adjust to your real one later)
+  - job_name: "catalog"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
