@@ -56,3 +56,8 @@ run-gateway-dev:
 
 run-catalog-dev:
 	APP_ENV=dev LOG_LEVEL=debug GRPC_PORT=8081 go run ./cmd/catalog
+
+sqlc:
+	@echo "🤖 Generating SQLC code..."
+	@sqlc generate
+	@echo "✅ SQLC Generation Complete!"

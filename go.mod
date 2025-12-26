@@ -2,7 +2,10 @@ module github.com/dwikikusuma/shoping-llm
 
 go 1.25.1
 
-require google.golang.org/grpc v1.78.0
+require (
+	github.com/google/uuid v1.6.0
+	google.golang.org/grpc v1.78.0
+)
 
 require (
 	golang.org/x/net v0.47.0 // indirect
