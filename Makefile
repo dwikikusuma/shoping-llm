@@ -36,19 +36,19 @@ fmt:
 tidy:
 	go mod tidy
 
+PROTO_DIR := api/proto
+MODULE := github.com/dwikikusuma/shoping-llm
+
 proto-tools:
 	@command -v protoc >/dev/null 2>&1 || (echo "protoc is not installed" && exit 1)
-	@command -v protoc-gen-go >/dev/null 2>&1 || (echo "protoc-gen-go is not installed. Run: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest" && exit 1)
-	@command -v protoc-gen-go-grpc >/dev/null 2>&1 || (echo "protoc-gen-go-grpc is not installed. Run: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest" && exit 1)
+	@command -v protoc-gen-go >/dev/null 2>&1 || (echo "missing protoc-gen-go: go install google.golang.org/protobuf/cmd/protoc-gen-go@latest" && exit 1)
+	@command -v protoc-gen-go-grpc >/dev/null 2>&1 || (echo "missing protoc-gen-go-grpc: go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest" && exit 1)
 
-# Update PROTO_DIR/OUT_DIR to match your layout
-PROTO_DIR := api/proto
-OUT_DIR := .
 
 proto: proto-tools
 	protoc -I $(PROTO_DIR) \
-		--go_out=$(OUT_DIR) --go_opt=paths=source_relative \
-		--go-grpc_out=$(OUT_DIR) --go-grpc_opt=paths=source_relative \
+		--go_out=. --go_opt=module=$(MODULE) --go_opt=paths=import \
+		--go-grpc_out=. --go-grpc_opt=module=$(MODULE) --go-grpc_opt=paths=import \
 		$$(find $(PROTO_DIR) -name "*.proto")
 
 run-gateway-dev:
@@ -57,7 +57,14 @@ run-gateway-dev:
 run-catalog-dev:
 	APP_ENV=dev LOG_LEVEL=debug GRPC_PORT=8081 go run ./cmd/catalog
 
+DC := docker compose -f deploy/docker-compose.yml
+
+.PHONY: sqlc migrate-catalog
+
 sqlc:
 	@echo "🤖 Generating SQLC code..."
 	@sqlc generate
 	@echo "✅ SQLC Generation Complete!"
+
+migrate-catalog:
+	$(DC) exec -T postgres psql -U shopping -d shopping_db -f /work/internal/catalog/infra/postgres/migrations/001_init.sql

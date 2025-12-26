@@ -14,6 +14,8 @@ services:
       - "5432:5432"
     volumes:
       - shopping_postgres_data:/var/lib/postgresql/data
+      - shopping_postgres_data:/var/lib/postgresql/data
+      - ./:/work
     networks:
       - shopping_net
     healthcheck:
@@ -192,3 +194,4 @@ volumes:
   shopping_kafka_data:
   shopping_prometheus_data:
   shopping_grafana_data:
+

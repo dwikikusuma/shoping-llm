@@ -1,0 +1,55 @@
+// api/proto/catalog/v1/catalog.proto
+syntax = "proto3";
+
+package catalog.v1;
+
+option go_package = "github.com/dwikikusuma/shoping-llm/api/gen/catalog/v1;catalogv1";
+
+message Money {
+  string currency = 1; // "IDR"
+  int64  amount   = 2; // minor unit (IDR: rupiah)
+}
+
+message Product {
+  string id              = 1;
+  string name            = 2;
+  string description     = 3;
+  Money  price           = 4;
+  int64  created_at_unix  = 5;
+  int64  updated_at_unix  = 6;
+}
+
+message CreateProductRequest {
+  string name        = 1;
+  string description = 2;
+  Money  price       = 3;
+}
+
+message CreateProductResponse {
+  Product product = 1;
+}
+
+message GetProductRequest {
+  string id = 1;
+}
+
+message GetProductResponse {
+  Product product = 1;
+}
+
+message ListProductsRequest {
+  string query  = 1;  // optional: search by name
+  int32  limit  = 2;  // default 20, max 100
+  string cursor = 3;  // last seen id (uuid string) for MVP
+}
+
+message ListProductsResponse {
+  repeated Product products  = 1;
+  string next_cursor         = 2;
+}
+
+service CatalogService {
+  rpc CreateProduct(CreateProductRequest) returns (CreateProductResponse);
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  rpc ListProducts(ListProductsRequest) returns (ListProductsResponse);
+}
