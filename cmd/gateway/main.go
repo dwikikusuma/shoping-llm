@@ -2,32 +2,38 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/dwikikusuma/shoping-llm/pkg/config"
+	"github.com/dwikikusuma/shoping-llm/pkg/logger"
 	"github.com/dwikikusuma/shoping-llm/pkg/shutdown"
 )
 
 func main() {
+	cfg := config.Load()
+	log := logger.New(logger.Options{
+		Service:   "gateway",
+		Env:       cfg.AppEnv,
+		Level:     cfg.LogLevel,
+		AddSource: true,
+	})
+
 	root := context.Background()
 	ctx, cancel := shutdown.WithSignals(root)
 	defer cancel()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
+	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	server := &http.Server{
-		Addr:              ":8080",
+		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -40,25 +46,23 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		log.Info("http server starting", slog.String("addr", addr))
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("HTTP server error: %v", err)
+			log.Error("http server error", slog.Any("err", err))
 			cancel()
 		}
 	}()
 
-	// 2) Wait for shutdown signal
 	<-ctx.Done()
-	log.Println("shutdown requested...")
+	log.Info("shutdown requested")
 
-	// 3) Shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("shutdown error: %v\n", err)
+		log.Error("http shutdown error", slog.Any("err", err))
 	}
 
-	// 4) Wait for goroutines to finish
 	wg.Wait()
-	log.Println("bye.")
+	log.Info("bye")
 }
