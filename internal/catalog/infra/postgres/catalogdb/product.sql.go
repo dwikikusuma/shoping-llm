@@ -12,6 +12,7 @@ import (
 )
 
 const createProduct = `-- name: CreateProduct :one
+
 INSERT INTO products (name, description, currency, price_amount)
 VALUES ($1, $2, $3, $4)
     RETURNING id, name, description, currency, price_amount, created_at, updated_at
@@ -24,6 +25,7 @@ type CreateProductParams struct {
 	PriceAmount int64  `json:"price_amount"`
 }
 
+// internal/catalog/infra/postgres/queries/products.sql
 func (q *Queries) CreateProduct(ctx context.Context, arg CreateProductParams) (Product, error) {
 	row := q.db.QueryRowContext(ctx, createProduct,
 		arg.Name,
@@ -69,19 +71,25 @@ const listProducts = `-- name: ListProducts :many
 SELECT id, name, description, currency, price_amount, created_at, updated_at
 FROM products
 WHERE ($1 = '' OR name ILIKE '%' || $1 || '%')
-  AND ($2 IS NULL OR id < $2)
+  AND ($2 = false OR id < $3)
 ORDER BY id DESC
-    LIMIT $3::int
+    LIMIT $4
 `
 
 type ListProductsParams struct {
-	Query  interface{} `json:"query"`
-	Cursor interface{} `json:"cursor"`
-	Limit  int32       `json:"limit"`
+	Query     interface{} `json:"query"`
+	UseCursor interface{} `json:"use_cursor"`
+	Cursor    uuid.UUID   `json:"cursor"`
+	PageLimit int32       `json:"page_limit"`
 }
 
 func (q *Queries) ListProducts(ctx context.Context, arg ListProductsParams) ([]Product, error) {
-	rows, err := q.db.QueryContext(ctx, listProducts, arg.Query, arg.Cursor, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, listProducts,
+		arg.Query,
+		arg.UseCursor,
+		arg.Cursor,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

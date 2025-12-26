@@ -144,19 +144,19 @@ func (s *server) productsHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.listProductsHTTP(w, r)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeErr(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
 func (s *server) productByIDHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeErr(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/v1/products/")
 	id = strings.TrimSpace(id)
 	if id == "" {
-		http.Error(w, "missing id", http.StatusBadRequest)
+		writeErr(w, "missing id", http.StatusBadRequest)
 		return
 	}
 	s.getProductHTTP(w, r, id)
@@ -165,7 +165,7 @@ func (s *server) productByIDHandler(w http.ResponseWriter, r *http.Request) {
 func (s *server) createProductHTTP(w http.ResponseWriter, r *http.Request) {
 	var body createProductReq
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+		writeErr(w, "invalid json", http.StatusBadRequest)
 		return
 	}
 
@@ -182,7 +182,7 @@ func (s *server) createProductHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.log.Error("create product failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())))
-		http.Error(w, "create failed", http.StatusBadRequest)
+		writeErr(w, "create failed", http.StatusBadRequest)
 		return
 	}
 
@@ -196,7 +196,7 @@ func (s *server) getProductHTTP(w http.ResponseWriter, r *http.Request, id strin
 	resp, err := s.catalog.GetProduct(ctx, &catalogv1.GetProductRequest{Id: id})
 	if err != nil {
 		s.log.Error("get product failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("id", id))
-		http.Error(w, "not found", http.StatusNotFound)
+		writeErr(w, "not found", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, toHTTPProduct(resp.Product))
@@ -223,7 +223,7 @@ func (s *server) listProductsHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.log.Error("list products failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())))
-		http.Error(w, "list failed", http.StatusBadRequest)
+		writeErr(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -253,4 +253,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+type errResp struct {
+	Error string `json:"error"`
+}
+
+func writeErr(w http.ResponseWriter, msg string, status int) {
+	writeJSON(w, status, errResp{Error: msg})
 }

@@ -72,26 +72,30 @@ func (r *ProductRepo) Get(ctx context.Context, id string) (domain.Product, error
 }
 
 func (r *ProductRepo) List(ctx context.Context, query string, limit int, cursor string) ([]domain.Product, string, error) {
-	var cur uuid.NullUUID
+	useCursor := false
+	cursorUUID := uuid.Nil
+
 	if strings.TrimSpace(cursor) != "" {
 		uid, err := uuid.Parse(strings.TrimSpace(cursor))
 		if err != nil {
 			return nil, "", app.ErrInvalidInput
 		}
-		cur = uuid.NullUUID{UUID: uid, Valid: true}
+		useCursor = true
+		cursorUUID = uid
 	}
 
 	rows, err := r.q.ListProducts(ctx, catalogdb.ListProductsParams{
-		Query:  strings.TrimSpace(query),
-		Limit:  int32(limit),
-		Cursor: cur,
+		Query:     strings.TrimSpace(query),
+		PageLimit: int32(limit),
+		UseCursor: useCursor,
+		Cursor:    cursorUUID,
 	})
 	if err != nil {
 		return nil, "", err
 	}
 
 	out := make([]domain.Product, 0, len(rows))
-	var nextCursor string
+	nextCursor := ""
 
 	for _, row := range rows {
 		out = append(out, domain.Product{
@@ -108,6 +112,5 @@ func (r *ProductRepo) List(ctx context.Context, query string, limit int, cursor 
 	if len(out) < limit {
 		nextCursor = ""
 	}
-
 	return out, nextCursor, nil
 }

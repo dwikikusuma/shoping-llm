@@ -184,6 +184,26 @@ services:
       timeout: 5s
       retries: 30
 
+  mongo:
+    image: mongo:6.0
+    container_name: shopping_mongo
+    hostname: mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+    ports:
+      - "27017:27017"
+    volumes:
+      - shopping_mongo_data:/data/db
+    networks:
+      - shopping_net
+    healthcheck:
+      test: [ "CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' mongodb://root:rootpassword@localhost:27017/admin | grep 1 >/dev/null" ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+
 networks:
   shopping_net:
     driver: bridge
@@ -194,4 +214,4 @@ volumes:
   shopping_kafka_data:
   shopping_prometheus_data:
   shopping_grafana_data:
-
+  shopping_mongo_data:

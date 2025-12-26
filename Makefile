@@ -7,7 +7,8 @@ DC := docker compose -f deploy/docker-compose.yml
 .PHONY: dev dev-down dev-logs ps \
         run-gateway run-catalog \
         test fmt tidy \
-        proto proto-tools
+        proto proto-tools \
+        sqlc migrate-catalog
 
 dev:
 	$(DC) up -d
@@ -57,9 +58,7 @@ run-gateway-dev:
 run-catalog-dev:
 	APP_ENV=dev LOG_LEVEL=debug GRPC_PORT=8081 go run ./cmd/catalog
 
-DC := docker compose -f deploy/docker-compose.yml
 
-.PHONY: sqlc migrate-catalog
 
 sqlc:
 	@echo "🤖 Generating SQLC code..."
@@ -67,4 +66,4 @@ sqlc:
 	@echo "✅ SQLC Generation Complete!"
 
 migrate-catalog:
-	$(DC) exec -T postgres psql -U shopping -d shopping_db -f /work/internal/catalog/infra/postgres/migrations/001_init.sql
+	$(DC) exec -T postgres psql -U shopping -d shopping_db < internal/catalog/infra/postgres/migrations/001_init.sql
