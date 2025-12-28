@@ -18,7 +18,9 @@ import (
 	"github.com/dwikikusuma/shoping-llm/pkg/logger"
 	"github.com/dwikikusuma/shoping-llm/pkg/shutdown"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 type server struct {
@@ -182,8 +184,8 @@ func (s *server) createProductHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.log.Error("create product failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())))
-		writeErr(w, "create failed", http.StatusBadRequest)
-		return
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
 	}
 
 	writeJSON(w, http.StatusCreated, toHTTPProduct(resp.Product))
@@ -196,7 +198,8 @@ func (s *server) getProductHTTP(w http.ResponseWriter, r *http.Request, id strin
 	resp, err := s.catalog.GetProduct(ctx, &catalogv1.GetProductRequest{Id: id})
 	if err != nil {
 		s.log.Error("get product failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("id", id))
-		writeErr(w, "not found", http.StatusNotFound)
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
 		return
 	}
 	writeJSON(w, http.StatusOK, toHTTPProduct(resp.Product))
@@ -207,10 +210,16 @@ func (s *server) listProductsHTTP(w http.ResponseWriter, r *http.Request) {
 	cursor := r.URL.Query().Get("cursor")
 
 	limit := 20
-	if v := r.URL.Query().Get("limit"); strings.TrimSpace(v) != "" {
+	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			limit = n
 		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 100 {
+		limit = 100
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -223,7 +232,8 @@ func (s *server) listProductsHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		s.log.Error("list products failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())))
-		writeErr(w, err.Error(), http.StatusBadRequest)
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
 		return
 	}
 
@@ -261,4 +271,37 @@ type errResp struct {
 
 func writeErr(w http.ResponseWriter, msg string, status int) {
 	writeJSON(w, status, errResp{Error: msg})
+}
+
+type apiError struct {
+	Error string `json:"error"`
+	Code  string `json:"code,omitempty"`
+}
+
+func writeAPIError(w http.ResponseWriter, statusCode int, code string, msg string) {
+	writeJSON(w, statusCode, apiError{Error: msg, Code: code})
+}
+
+func httpStatusFromGRPC(err error) (int, string, string) {
+	// returns: httpStatus, code, message
+	if err == nil {
+		return http.StatusOK, "", ""
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		// not a grpc status error
+		return http.StatusInternalServerError, "INTERNAL", "internal error"
+	}
+
+	switch st.Code() {
+	case codes.InvalidArgument:
+		return http.StatusBadRequest, "INVALID_ARGUMENT", st.Message()
+	case codes.NotFound:
+		return http.StatusNotFound, "NOT_FOUND", st.Message()
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return http.StatusServiceUnavailable, "UNAVAILABLE", st.Message()
+	default:
+		return http.StatusInternalServerError, "INTERNAL", "internal error"
+	}
 }

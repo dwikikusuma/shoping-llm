@@ -45,9 +45,9 @@ func (r *ProductRepo) Create(ctx context.Context, p domain.Product) (domain.Prod
 }
 
 func (r *ProductRepo) Get(ctx context.Context, id string) (domain.Product, error) {
-	prodID, err := uuid.Parse(id)
+	prodID, err := uuid.Parse(strings.TrimSpace(id))
 	if err != nil {
-		return domain.Product{}, err
+		return domain.Product{}, app.ErrInvalidInput
 	}
 
 	product, err := r.q.GetProduct(ctx, prodID)
@@ -95,8 +95,6 @@ func (r *ProductRepo) List(ctx context.Context, query string, limit int, cursor 
 	}
 
 	out := make([]domain.Product, 0, len(rows))
-	nextCursor := ""
-
 	for _, row := range rows {
 		out = append(out, domain.Product{
 			ID:          row.ID.String(),
@@ -106,11 +104,13 @@ func (r *ProductRepo) List(ctx context.Context, query string, limit int, cursor 
 			CreatedAt:   row.CreatedAt,
 			UpdatedAt:   row.UpdatedAt,
 		})
-		nextCursor = row.ID.String()
 	}
 
-	if len(out) < limit {
-		nextCursor = ""
+	// next_cursor: return the last item's ID only when we returned a full page
+	nextCursor := ""
+	if len(rows) == limit && len(rows) > 0 {
+		nextCursor = rows[len(rows)-1].ID.String()
 	}
+
 	return out, nextCursor, nil
 }
