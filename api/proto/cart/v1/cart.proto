@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package cart.v1;
+
+option go_package = "github.com/dwikikusuma/shoping-llm/api/gen/cart/v1;cartv1";
+
+message Cart{
+  string id = 1;
+  string user_id = 2;
+  string status = 6;
+  repeated CartItem items = 3;
+  int64 created_at_unix = 4;
+  int64 updated_at_unix = 5;
+}
+
+message CartItem{
+  string product_id = 1;
+  int32 quantity = 2;
+}
+
+message Id{
+  string id = 1;
+}
+
+message UpdateCartItemRequest{
+  string user_id = 1;
+  CartItem item = 2;
+}
+
+message RemoveCartItemRequest{
+  string user_id = 1;
+  string product_id = 2;
+}
+
+service CartService {
+  rpc GetCart(Id) returns (Cart);
+  rpc AddItem(UpdateCartItemRequest) returns (Cart);
+  rpc SetItemQuantity(UpdateCartItemRequest) returns (Cart);
+  rpc RemoveItem(RemoveCartItemRequest) returns (Cart);
+  rpc ClearCart(Id) returns (Cart);
+  rpc CreateCart(Cart) returns (Cart);
+  rpc GetOrCreateCart(Id) returns (Cart);
+}
