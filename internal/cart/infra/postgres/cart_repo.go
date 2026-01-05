@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"strings"
 
 	"github.com/dwikikusuma/shoping-llm/internal/cart/domain"
 	"github.com/dwikikusuma/shoping-llm/internal/cart/infra/postgres/cartgdb"
@@ -159,4 +161,43 @@ func (r *CartRepo) SetItemQuantity(ctx context.Context, cartID string, item doma
 	}
 
 	return nil
+}
+
+func (r *CartRepo) GetOrCreate(ctx context.Context, userID string) (domain.Cart, error) {
+	// 1) Try get
+	cart, err := r.Get(ctx, userID)
+	if err == nil {
+		return cart, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return domain.Cart{}, err
+	}
+
+	// 2) Not found => try create
+	userUUID, parseErr := uuid.Parse(userID)
+	if parseErr != nil {
+		return domain.Cart{}, parseErr
+	}
+
+	_, createErr := r.q.CreateActiveCart(ctx, userUUID)
+	if createErr == nil {
+		return r.Get(ctx, userID)
+	}
+
+	// 3) If someone else created concurrently => re-get
+	if isUniqueViolation(createErr) {
+		return r.Get(ctx, userID)
+	}
+
+	return domain.Cart{}, createErr
+}
+
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate key") ||
+		strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "23505")
 }

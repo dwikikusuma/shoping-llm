@@ -13,4 +13,5 @@ type CartRepo interface {
 	ClearCart(ctx context.Context, cartId string) error
 	RemoveItem(ctx context.Context, cartID string, productID string) error
 	SetItemQuantity(ctx context.Context, cartID string, item domain.CartItem) error
+	GetOrCreate(ctx context.Context, userID string) (domain.Cart, error)
 }

@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 
 	"github.com/dwikikusuma/shoping-llm/internal/cart/domain"
 )
@@ -27,18 +25,8 @@ func (s *Service) CreateCart(ctx context.Context, cart domain.Cart) (domain.Cart
 }
 
 func (s *Service) GetOrCreate(ctx context.Context, userID string) (domain.Cart, error) {
-	cart, err := s.repo.Get(ctx, userID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			newCart := domain.Cart{
-				UserID: userID,
-			}
-			return s.repo.Create(ctx, newCart)
-		}
-	}
-	return cart, err
+	return s.repo.GetOrCreate(ctx, userID)
 }
-
 func (s *Service) AddItemToCart(ctx context.Context, item domain.CartItem, cartId string) error {
 	return s.repo.AddItem(ctx, item, cartId)
 }
