@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package checkout.v1;
+
+option go_package = "github.com/dwikikusuma/shoping-llm/api/gen/checkout/v1;checkoutv1";
+
+message Money {
+  string currency = 1;
+  int64 amount = 2;
+}
+
+message QuoteLine {
+  string product_id = 1;
+  string name = 2;
+  int32 quantity = 3;
+  Money unit_price = 4;
+  Money line_total = 5;
+}
+
+message QuoteRequest {
+  string user_id = 1;
+}
+
+message QuoteResponse {
+  repeated QuoteLine lines = 1;
+  Money total = 2;
+}
+
+service CheckoutService {
+  rpc Quote(QuoteRequest) returns (QuoteResponse);
+}
