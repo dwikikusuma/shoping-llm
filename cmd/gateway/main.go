@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,7 +14,10 @@ import (
 	"sync"
 	"time"
 
+	cartv1 "github.com/dwikikusuma/shoping-llm/api/gen/cart/v1"
 	catalogv1 "github.com/dwikikusuma/shoping-llm/api/gen/catalog/v1"
+	checkoutv1 "github.com/dwikikusuma/shoping-llm/api/gen/checkout/v1"
+
 	"github.com/dwikikusuma/shoping-llm/pkg/config"
 	"github.com/dwikikusuma/shoping-llm/pkg/logger"
 	"github.com/dwikikusuma/shoping-llm/pkg/shutdown"
@@ -24,8 +28,10 @@ import (
 )
 
 type server struct {
-	log     *slog.Logger
-	catalog catalogv1.CatalogServiceClient
+	log      *slog.Logger
+	catalog  catalogv1.CatalogServiceClient
+	cart     cartv1.CartServiceClient
+	checkout checkoutv1.CheckoutServiceClient
 }
 
 func main() {
@@ -35,7 +41,6 @@ func main() {
 	ctx, cancel := shutdown.WithSignals(context.Background())
 	defer cancel()
 
-	//conn, err := grpc.Dial(cfg.CatalogGRPCAddr, grpc.WithInsecure())
 	conn, err := grpc.NewClient(cfg.CatalogGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Error("grpc dial failed", slog.Any("err", err), slog.String("addr", cfg.CatalogGRPCAddr))
@@ -44,8 +49,10 @@ func main() {
 	defer conn.Close()
 
 	s := &server{
-		log:     log,
-		catalog: catalogv1.NewCatalogServiceClient(conn),
+		log:      log,
+		catalog:  catalogv1.NewCatalogServiceClient(conn),
+		cart:     cartv1.NewCartServiceClient(conn),
+		checkout: checkoutv1.NewCheckoutServiceClient(conn),
 	}
 
 	mux := http.NewServeMux()
@@ -53,8 +60,13 @@ func main() {
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 
+	// Catalog
 	mux.HandleFunc("/v1/products", s.productsHandler)
 	mux.HandleFunc("/v1/products/", s.productByIDHandler)
+
+	// Cart + Checkout
+	mux.HandleFunc("/v1/cart/", s.cartHandler)
+	mux.HandleFunc("/v1/checkout/quote/", s.quoteHandler)
 
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	httpServer := &http.Server{
@@ -112,6 +124,10 @@ func newReqID() string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+/* =========================
+   Catalog HTTP (existing)
+   ========================= */
 
 type createProductReq struct {
 	Name        string `json:"name"`
@@ -186,6 +202,7 @@ func (s *server) createProductHTTP(w http.ResponseWriter, r *http.Request) {
 		s.log.Error("create product failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())))
 		httpCode, code, msg := httpStatusFromGRPC(err)
 		writeAPIError(w, httpCode, code, msg)
+		return // IMPORTANT
 	}
 
 	writeJSON(w, http.StatusCreated, toHTTPProduct(resp.Product))
@@ -259,6 +276,265 @@ func toHTTPProduct(p *catalogv1.Product) productResp {
 	return out
 }
 
+/* =========================
+   Cart HTTP
+   ========================= */
+
+type cartItemHTTP struct {
+	ProductID string `json:"product_id"`
+	Quantity  int32  `json:"quantity"`
+}
+
+type cartHTTP struct {
+	ID        string         `json:"id"`
+	UserID    string         `json:"user_id"`
+	Status    string         `json:"status"`
+	Items     []cartItemHTTP `json:"items"`
+	CreatedAt int64          `json:"created_at_unix"`
+	UpdatedAt int64          `json:"updated_at_unix"`
+}
+
+type addItemReq struct {
+	ProductID string `json:"product_id"`
+	Quantity  int32  `json:"quantity"`
+}
+
+type setQtyReq struct {
+	Quantity int32 `json:"quantity"`
+}
+
+// Routes:
+// GET    /v1/cart/{user_id}
+// POST   /v1/cart/{user_id}/items
+// PUT    /v1/cart/{user_id}/items/{product_id}
+// DELETE /v1/cart/{user_id}/items/{product_id}
+// DELETE /v1/cart/{user_id}/items
+func (s *server) cartHandler(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/v1/cart/")
+	path = strings.Trim(path, "/")
+	parts := []string{}
+	if path != "" {
+		parts = strings.Split(path, "/")
+	}
+
+	// Need at least user_id
+	if len(parts) < 1 || strings.TrimSpace(parts[0]) == "" {
+		writeErr(w, "missing user_id", http.StatusBadRequest)
+		return
+	}
+	userID := parts[0]
+
+	// /v1/cart/{user_id}
+	if len(parts) == 1 {
+		if r.Method != http.MethodGet {
+			writeErr(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.getOrCreateCartHTTP(w, r, userID)
+		return
+	}
+
+	// /v1/cart/{user_id}/items
+	if len(parts) == 2 && parts[1] == "items" {
+		switch r.Method {
+		case http.MethodPost:
+			s.addItemHTTP(w, r, userID)
+		case http.MethodDelete:
+			s.clearCartHTTP(w, r, userID)
+		default:
+			writeErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	// /v1/cart/{user_id}/items/{product_id}
+	if len(parts) == 3 && parts[1] == "items" {
+		productID := parts[2]
+		switch r.Method {
+		case http.MethodPut:
+			s.setItemQtyHTTP(w, r, userID, productID)
+		case http.MethodDelete:
+			s.removeItemHTTP(w, r, userID, productID)
+		default:
+			writeErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+		return
+	}
+
+	writeErr(w, "not found", http.StatusNotFound)
+}
+
+func (s *server) getOrCreateCartHTTP(w http.ResponseWriter, r *http.Request, userID string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	resp, err := s.cart.GetOrCreateCart(ctx, &cartv1.UserId{Id: userID})
+	if err != nil {
+		s.log.Error("get or create cart failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("user_id", userID))
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toHTTPCart(resp))
+}
+
+func (s *server) addItemHTTP(w http.ResponseWriter, r *http.Request, userID string) {
+	var body addItemReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(body.ProductID) == "" {
+		writeErr(w, "missing product_id", http.StatusBadRequest)
+		return
+	}
+	if body.Quantity <= 0 {
+		writeErr(w, "quantity must be > 0", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	resp, err := s.cart.AddItem(ctx, &cartv1.UpdateCartItemRequest{
+		UserId: userID,
+		Item: &cartv1.CartItem{
+			ProductId: body.ProductID,
+			Quantity:  body.Quantity,
+		},
+	})
+	if err != nil {
+		s.log.Error("add item failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("user_id", userID))
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toHTTPCart(resp))
+}
+
+func (s *server) setItemQtyHTTP(w http.ResponseWriter, r *http.Request, userID, productID string) {
+	var body setQtyReq
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if body.Quantity <= 0 {
+		writeErr(w, "quantity must be > 0", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	resp, err := s.cart.SetItemQuantity(ctx, &cartv1.UpdateCartItemRequest{
+		UserId: userID,
+		Item: &cartv1.CartItem{
+			ProductId: productID,
+			Quantity:  body.Quantity,
+		},
+	})
+	if err != nil {
+		s.log.Error("set item quantity failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("user_id", userID))
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toHTTPCart(resp))
+}
+
+func (s *server) removeItemHTTP(w http.ResponseWriter, r *http.Request, userID, productID string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	resp, err := s.cart.RemoveItem(ctx, &cartv1.RemoveCartItemRequest{
+		UserId:    userID,
+		ProductId: productID,
+	})
+	if err != nil {
+		s.log.Error("remove item failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("user_id", userID))
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toHTTPCart(resp))
+}
+
+func (s *server) clearCartHTTP(w http.ResponseWriter, r *http.Request, userID string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	// NOTE: your current Cart gRPC ClearCart expects CartId but uses it like a user_id in server code.
+	resp, err := s.cart.ClearCart(ctx, &cartv1.CartId{Id: userID})
+	if err != nil {
+		s.log.Error("clear cart failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("user_id", userID))
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toHTTPCart(resp))
+}
+
+func toHTTPCart(c *cartv1.Cart) cartHTTP {
+	out := cartHTTP{
+		ID:        c.GetId(),
+		UserID:    c.GetUserId(),
+		Status:    c.GetStatus(),
+		CreatedAt: c.GetCreatedAtUnix(),
+		UpdatedAt: c.GetUpdatedAtUnix(),
+		Items:     make([]cartItemHTTP, 0, len(c.GetItems())),
+	}
+	for _, it := range c.GetItems() {
+		out.Items = append(out.Items, cartItemHTTP{
+			ProductID: it.GetProductId(),
+			Quantity:  it.GetQuantity(),
+		})
+	}
+	return out
+}
+
+/* =========================
+   Checkout Quote HTTP
+   ========================= */
+
+// GET /v1/checkout/quote/{user_id}
+func (s *server) quoteHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeErr(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID := strings.TrimPrefix(r.URL.Path, "/v1/checkout/quote/")
+	userID = strings.Trim(userID, "/")
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		writeErr(w, "missing user_id", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	resp, err := s.checkout.Quote(ctx, &checkoutv1.QuoteRequest{UserId: userID})
+	if err != nil {
+		s.log.Error("quote failed", slog.Any("err", err), slog.String("rid", reqIDFrom(r.Context())), slog.String("user_id", userID))
+		httpCode, code, msg := httpStatusFromGRPC(err)
+		writeAPIError(w, httpCode, code, msg)
+		return
+	}
+
+	// resp already JSON-friendly, but we’ll map explicitly.
+	writeJSON(w, http.StatusOK, resp)
+}
+
+/* =========================
+   Common HTTP utils
+   ========================= */
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -283,14 +559,12 @@ func writeAPIError(w http.ResponseWriter, statusCode int, code string, msg strin
 }
 
 func httpStatusFromGRPC(err error) (int, string, string) {
-	// returns: httpStatus, code, message
 	if err == nil {
 		return http.StatusOK, "", ""
 	}
 
 	st, ok := status.FromError(err)
 	if !ok {
-		// not a grpc status error
 		return http.StatusInternalServerError, "INTERNAL", "internal error"
 	}
 
@@ -302,6 +576,7 @@ func httpStatusFromGRPC(err error) (int, string, string) {
 	case codes.Unavailable, codes.DeadlineExceeded:
 		return http.StatusServiceUnavailable, "UNAVAILABLE", st.Message()
 	default:
+		_ = sql.ErrNoRows
 		return http.StatusInternalServerError, "INTERNAL", "internal error"
 	}
 }

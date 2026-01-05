@@ -11,10 +11,22 @@ import (
 	"sync"
 	"time"
 
+	cartv1 "github.com/dwikikusuma/shoping-llm/api/gen/cart/v1"
 	catalogv1 "github.com/dwikikusuma/shoping-llm/api/gen/catalog/v1"
-	"github.com/dwikikusuma/shoping-llm/internal/catalog/app"
+	checkoutv1 "github.com/dwikikusuma/shoping-llm/api/gen/checkout/v1"
+
+	cartapp "github.com/dwikikusuma/shoping-llm/internal/cart/app"
+	cartgrpc "github.com/dwikikusuma/shoping-llm/internal/cart/grpc"
+	cartpg "github.com/dwikikusuma/shoping-llm/internal/cart/infra/postgres"
+
+	catalogapp "github.com/dwikikusuma/shoping-llm/internal/catalog/app"
 	cgrpc "github.com/dwikikusuma/shoping-llm/internal/catalog/grpc"
 	cpg "github.com/dwikikusuma/shoping-llm/internal/catalog/infra/postgres"
+
+	checkoutapp "github.com/dwikikusuma/shoping-llm/internal/checkout/app"
+	checkoutgrpc "github.com/dwikikusuma/shoping-llm/internal/checkout/grpc"
+	checkoutadapter "github.com/dwikikusuma/shoping-llm/internal/checkout/infra/adapter"
+
 	"github.com/dwikikusuma/shoping-llm/pkg/config"
 	"github.com/dwikikusuma/shoping-llm/pkg/logger"
 	"github.com/dwikikusuma/shoping-llm/pkg/postgres"
@@ -24,7 +36,7 @@ import (
 
 func main() {
 	cfg := config.Load()
-	log := logger.New(logger.Options{Service: "catalog", Env: cfg.AppEnv, Level: cfg.LogLevel, AddSource: true})
+	log := logger.New(logger.Options{Service: "api", Env: cfg.AppEnv, Level: cfg.LogLevel, AddSource: true})
 
 	ctx, cancel := shutdown.WithSignals(context.Background())
 	defer cancel()
@@ -32,8 +44,18 @@ func main() {
 	db := mustDB(log)
 	defer db.Close()
 
-	repo := cpg.NewProductRepo(db)
-	svc := app.NewService(repo)
+	// Catalog
+	catalogRepo := cpg.NewProductRepo(db)
+	catalogSvc := catalogapp.NewService(catalogRepo)
+
+	// Cart
+	cartRepo := cartpg.NewCartRepo(db)
+	cartSvc := cartapp.NewService(cartRepo)
+
+	// Checkout (adapters)
+	cartReader := checkoutadapter.NewCartServiceReader(cartSvc)
+	catalogReader := checkoutadapter.NewCatalogServiceReader(catalogSvc)
+	checkoutSvc := checkoutapp.NewService(cartReader, catalogReader, 10)
 
 	addr := fmt.Sprintf(":%d", cfg.GRPCPort)
 	lis, err := net.Listen("tcp", addr)
@@ -43,7 +65,9 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	catalogv1.RegisterCatalogServiceServer(grpcServer, cgrpc.NewServer(svc))
+	catalogv1.RegisterCatalogServiceServer(grpcServer, cgrpc.NewServer(catalogSvc))
+	cartv1.RegisterCartServiceServer(grpcServer, cartgrpc.NewServer(cartSvc))
+	checkoutv1.RegisterCheckoutServiceServer(grpcServer, checkoutgrpc.NewServer(checkoutSvc))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
