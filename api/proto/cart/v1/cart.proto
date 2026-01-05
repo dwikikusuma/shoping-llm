@@ -18,7 +18,11 @@ message CartItem{
   int32 quantity = 2;
 }
 
-message Id{
+message UserId{
+  string id = 1;
+}
+
+message CartId{
   string id = 1;
 }
 
@@ -33,11 +37,11 @@ message RemoveCartItemRequest{
 }
 
 service CartService {
-  rpc GetCart(Id) returns (Cart);
+  rpc GetCart(UserId) returns (Cart);
   rpc AddItem(UpdateCartItemRequest) returns (Cart);
   rpc SetItemQuantity(UpdateCartItemRequest) returns (Cart);
   rpc RemoveItem(RemoveCartItemRequest) returns (Cart);
-  rpc ClearCart(Id) returns (Cart);
+  rpc ClearCart(CartId) returns (Cart);
   rpc CreateCart(Cart) returns (Cart);
-  rpc GetOrCreateCart(Id) returns (Cart);
+  rpc GetOrCreateCart(UserId) returns (Cart);
 }

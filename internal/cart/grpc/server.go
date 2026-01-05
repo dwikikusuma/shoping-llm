@@ -21,7 +21,7 @@ func NewServer(svc *app.Service) *Server {
 	return &Server{svc: svc}
 }
 
-func (s *Server) GetCart(ctx context.Context, req *cartv1.Id) (*cartv1.Cart, error) {
+func (s *Server) GetCart(ctx context.Context, req *cartv1.UserId) (*cartv1.Cart, error) {
 	cart, err := s.svc.GetCart(ctx, req.Id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -56,7 +56,7 @@ func (s *Server) CreateCart(ctx context.Context, req *cartv1.Cart) (*cartv1.Cart
 	return toProto(createdCart), nil
 }
 
-func (s *Server) GetOrCreateCart(ctx context.Context, req *cartv1.Id) (*cartv1.Cart, error) {
+func (s *Server) GetOrCreateCart(ctx context.Context, req *cartv1.UserId) (*cartv1.Cart, error) {
 	cart, err := s.svc.GetOrCreate(ctx, req.Id)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "error getting or creating cart: %v", err)
@@ -88,7 +88,7 @@ func (s *Server) AddItem(ctx context.Context, req *cartv1.UpdateCartItemRequest)
 	return toProto(updatedCart), nil
 }
 
-func (s *Server) ClearCart(ctx context.Context, req *cartv1.Id) (*cartv1.Cart, error) {
+func (s *Server) ClearCart(ctx context.Context, req *cartv1.CartId) (*cartv1.Cart, error) {
 	cart, err := s.svc.GetCart(ctx, req.Id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
