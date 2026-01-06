@@ -68,3 +68,7 @@ sqlc:
 migrate-catalog:
 	$(DC) exec -T postgres psql -U shopping -d shopping_db < internal/catalog/infra/postgres/migrations/001_init.sql
 	$(DC) exec -T postgres psql -U shopping -d shopping_db < internal/cart/infra/postgres/migrations/001_create_cart.up.sql
+
+migrate-order:
+	$(DC) exec -T postgres psql -U shopping -d shopping_db < internal/order/infra/postgres/migrations/001_create_order_table.up.sql
+	$(DC) exec -T postgres psql -U shopping -d shopping_db < internal/order/infra/postgres/migrations/002_create_order_item_table.up.sql

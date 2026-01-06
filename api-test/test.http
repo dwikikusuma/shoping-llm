@@ -1,0 +1,128 @@
+@baseUrl = http://localhost:8080
+@userId = 11111111-1111-1111-1111-111111111111
+@productId = e451fbcb-0cdd-4682-bc6b-ca82d2084c9b
+
+###
+# Health checks
+GET {{baseUrl}}/healthz
+
+###
+GET {{baseUrl}}/readyz
+
+###
+GET {{baseUrl}}/metrics
+
+
+###
+# =========================
+# Catalog
+# =========================
+
+### Create product
+# Copy the returned "id" into @productId above for later requests.
+POST {{baseUrl}}/v1/products
+Content-Type: application/json
+X-Request-Id: dev-test-reqid-1
+
+{
+  "name": "Keyboard",
+  "description": "Mechanical",
+  "price": {
+    "currency": "IDR",
+    "amount": 250000
+  }
+}
+
+### Get product by ID
+GET {{baseUrl}}/v1/products/{{productId}}
+X-Request-Id: dev-test-reqid-2
+
+### List products (pagination)
+GET {{baseUrl}}/v1/products?limit=5
+X-Request-Id: dev-test-reqid-3
+
+### List products with query + cursor
+# Replace cursor value with the "next_cursor" you get from the list response.
+GET {{baseUrl}}/v1/products?query=key&limit=5&cursor=
+X-Request-Id: dev-test-reqid-4
+
+
+###
+# =========================
+# Cart
+# =========================
+
+### Get or create cart (by user_id)
+GET {{baseUrl}}/v1/cart/{{userId}}
+X-Request-Id: dev-test-reqid-10
+
+### Add item to cart
+POST {{baseUrl}}/v1/cart/{{userId}}/items
+Content-Type: application/json
+X-Request-Id: dev-test-reqid-11
+
+{
+  "product_id": "{{productId}}",
+  "quantity": 2
+}
+
+### Set item quantity
+PUT {{baseUrl}}/v1/cart/{{userId}}/items/{{productId}}
+Content-Type: application/json
+X-Request-Id: dev-test-reqid-12
+
+{
+  "quantity": 3
+}
+
+### Remove item from cart
+DELETE {{baseUrl}}/v1/cart/{{userId}}/items/{{productId}}
+X-Request-Id: dev-test-reqid-13
+
+### Clear cart (remove all items)
+DELETE {{baseUrl}}/v1/cart/{{userId}}/items
+X-Request-Id: dev-test-reqid-14
+
+
+###
+# =========================
+# Checkout
+# =========================
+
+### Quote (uses cart + catalog)
+GET {{baseUrl}}/v1/checkout/quote/{{userId}}
+X-Request-Id: dev-test-reqid-20
+
+
+###
+# =========================
+# Negative / Edge Tests
+# =========================
+
+### Cart with invalid userId (expect 400 or mapped error)
+GET {{baseUrl}}/v1/cart/not-a-uuid
+X-Request-Id: dev-test-reqid-90
+
+### Add item with invalid productId (expect 400 or mapped error)
+POST {{baseUrl}}/v1/cart/{{userId}}/items
+Content-Type: application/json
+X-Request-Id: dev-test-reqid-91
+
+{
+  "product_id": "not-a-uuid",
+  "quantity": 1
+}
+
+### Add item with invalid quantity (expect 400)
+POST {{baseUrl}}/v1/cart/{{userId}}/items
+Content-Type: application/json
+X-Request-Id: dev-test-reqid-92
+
+{
+  "product_id": "{{productId}}",
+  "quantity": 0
+}
+
+### Quote when cart is empty (expect 404 or your chosen behavior)
+GET {{baseUrl}}/v1/checkout/quote/{{userId}}
+X-Request-Id: dev-test-reqid-93
