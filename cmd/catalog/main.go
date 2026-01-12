@@ -14,6 +14,7 @@ import (
 	cartv1 "github.com/dwikikusuma/shoping-llm/api/gen/cart/v1"
 	catalogv1 "github.com/dwikikusuma/shoping-llm/api/gen/catalog/v1"
 	checkoutv1 "github.com/dwikikusuma/shoping-llm/api/gen/checkout/v1"
+	orderv1 "github.com/dwikikusuma/shoping-llm/api/gen/order/v1"
 
 	cartapp "github.com/dwikikusuma/shoping-llm/internal/cart/app"
 	cartgrpc "github.com/dwikikusuma/shoping-llm/internal/cart/grpc"
@@ -26,6 +27,10 @@ import (
 	checkoutapp "github.com/dwikikusuma/shoping-llm/internal/checkout/app"
 	checkoutgrpc "github.com/dwikikusuma/shoping-llm/internal/checkout/grpc"
 	checkoutadapter "github.com/dwikikusuma/shoping-llm/internal/checkout/infra/adapter"
+
+	orderapp "github.com/dwikikusuma/shoping-llm/internal/order/app"
+	ordergrpc "github.com/dwikikusuma/shoping-llm/internal/order/grpc"
+	orderpg "github.com/dwikikusuma/shoping-llm/internal/order/infra/postgres"
 
 	"github.com/dwikikusuma/shoping-llm/pkg/config"
 	"github.com/dwikikusuma/shoping-llm/pkg/logger"
@@ -57,6 +62,10 @@ func main() {
 	catalogReader := checkoutadapter.NewCatalogServiceReader(catalogSvc)
 	checkoutSvc := checkoutapp.NewService(cartReader, catalogReader, 10)
 
+	// Order
+	orderRepo := orderpg.NewOrderRepo(db)
+	ordersvc := orderapp.NewService(orderRepo)
+
 	addr := fmt.Sprintf(":%d", cfg.GRPCPort)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -68,6 +77,7 @@ func main() {
 	catalogv1.RegisterCatalogServiceServer(grpcServer, cgrpc.NewServer(catalogSvc))
 	cartv1.RegisterCartServiceServer(grpcServer, cartgrpc.NewServer(cartSvc))
 	checkoutv1.RegisterCheckoutServiceServer(grpcServer, checkoutgrpc.NewServer(checkoutSvc))
+	orderv1.RegisterOrderServiceServer(grpcServer, ordergrpc.NewServer(ordersvc))
 
 	var wg sync.WaitGroup
 	wg.Add(1)

@@ -25,7 +25,7 @@ type OrderItemInput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ProductId     string                 `protobuf:"bytes,1,opt,name=product_id,json=productId,proto3" json:"product_id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	UnitAmount    int32                  `protobuf:"varint,3,opt,name=unit_amount,json=unitAmount,proto3" json:"unit_amount,omitempty"`
+	UnitAmount    int64                  `protobuf:"varint,3,opt,name=unit_amount,json=unitAmount,proto3" json:"unit_amount,omitempty"`
 	Quantity      int32                  `protobuf:"varint,4,opt,name=quantity,proto3" json:"quantity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -75,7 +75,7 @@ func (x *OrderItemInput) GetName() string {
 	return ""
 }
 
-func (x *OrderItemInput) GetUnitAmount() int32 {
+func (x *OrderItemInput) GetUnitAmount() int64 {
 	if x != nil {
 		return x.UnitAmount
 	}
@@ -93,7 +93,7 @@ type CreateOrderRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Currency      string                 `protobuf:"bytes,2,opt,name=currency,proto3" json:"currency,omitempty"`
-	ShippingFee   int32                  `protobuf:"varint,3,opt,name=shipping_fee,json=shippingFee,proto3" json:"shipping_fee,omitempty"`
+	ShippingFee   int64                  `protobuf:"varint,3,opt,name=shipping_fee,json=shippingFee,proto3" json:"shipping_fee,omitempty"`
 	Items         []*OrderItemInput      `protobuf:"bytes,4,rep,name=items,proto3" json:"items,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -143,7 +143,7 @@ func (x *CreateOrderRequest) GetCurrency() string {
 	return ""
 }
 
-func (x *CreateOrderRequest) GetShippingFee() int32 {
+func (x *CreateOrderRequest) GetShippingFee() int64 {
 	if x != nil {
 		return x.ShippingFee
 	}
@@ -161,7 +161,7 @@ type CreateOrderResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	OrderId       string                 `protobuf:"bytes,1,opt,name=order_id,json=orderId,proto3" json:"order_id,omitempty"`
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	TotalAmount   int32                  `protobuf:"varint,3,opt,name=total_amount,json=totalAmount,proto3" json:"total_amount,omitempty"`
+	TotalAmount   int64                  `protobuf:"varint,3,opt,name=total_amount,json=totalAmount,proto3" json:"total_amount,omitempty"`
 	CreatedAtUnix string                 `protobuf:"bytes,4,opt,name=created_at_unix,json=createdAtUnix,proto3" json:"created_at_unix,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -211,7 +211,7 @@ func (x *CreateOrderResponse) GetStatus() string {
 	return ""
 }
 
-func (x *CreateOrderResponse) GetTotalAmount() int32 {
+func (x *CreateOrderResponse) GetTotalAmount() int64 {
 	if x != nil {
 		return x.TotalAmount
 	}
@@ -234,18 +234,18 @@ const file_order_v1_order_proto_rawDesc = "" +
 	"\n" +
 	"product_id\x18\x01 \x01(\tR\tproductId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
-	"\vunit_amount\x18\x03 \x01(\x05R\n" +
+	"\vunit_amount\x18\x03 \x01(\x03R\n" +
 	"unitAmount\x12\x1a\n" +
 	"\bquantity\x18\x04 \x01(\x05R\bquantity\"\x9c\x01\n" +
 	"\x12CreateOrderRequest\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\bcurrency\x18\x02 \x01(\tR\bcurrency\x12!\n" +
-	"\fshipping_fee\x18\x03 \x01(\x05R\vshippingFee\x12.\n" +
+	"\fshipping_fee\x18\x03 \x01(\x03R\vshippingFee\x12.\n" +
 	"\x05items\x18\x04 \x03(\v2\x18.order.v1.OrderItemInputR\x05items\"\x93\x01\n" +
 	"\x13CreateOrderResponse\x12\x19\n" +
 	"\border_id\x18\x01 \x01(\tR\aorderId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12!\n" +
-	"\ftotal_amount\x18\x03 \x01(\x05R\vtotalAmount\x12&\n" +
+	"\ftotal_amount\x18\x03 \x01(\x03R\vtotalAmount\x12&\n" +
 	"\x0fcreated_at_unix\x18\x04 \x01(\tR\rcreatedAtUnix2Z\n" +
 	"\fOrderService\x12J\n" +
 	"\vCreateOrder\x12\x1c.order.v1.CreateOrderRequest\x1a\x1d.order.v1.CreateOrderResponseB=Z;github.com/dwikikusuma/shoping-llm/api/gen/order/v1;orderv1b\x06proto3"

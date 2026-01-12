@@ -7,21 +7,21 @@ option go_package = "github.com/dwikikusuma/shoping-llm/api/gen/order/v1;orderv1
 message OrderItemInput{
   string product_id = 1;
   string name = 2;
-  int32 unit_amount = 3;
+  int64 unit_amount = 3;
   int32 quantity = 4;
 }
 
 message CreateOrderRequest {
   string user_id = 1;
   string currency = 2;
-  int32 shipping_fee = 3;
+  int64 shipping_fee = 3;
   repeated OrderItemInput items = 4;
 }
 
 message CreateOrderResponse {
   string order_id = 1;
   string status = 2;
-  int32 total_amount = 3;
+  int64 total_amount = 3;
   string created_at_unix = 4;
 }
 
